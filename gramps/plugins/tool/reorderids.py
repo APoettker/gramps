@@ -23,7 +23,7 @@
 
 """
 Change IDs of all elements in the database to conform to the
-scheme specified in the database's prefix_fmt ids
+scheme specified in the database's prefix ids
 """
 
 #------------------------------------------------------------------------
@@ -44,16 +44,17 @@ from gramps.gen.const import URL_MANUAL_PAGE
 from gramps.gen.const import GRAMPS_LOCALE as glocale
 _ = glocale.translation.gettext
 
+from gramps.gen.config import config
 from gramps.gen.db import DbTxn
 from gramps.gen.lib import (Person, Family, Event, Place,
                             Source, Citation, Repository,
                             Media, Note)
+from gramps.gen.updatecallback import UpdateCallback
 
 from gramps.gui.display import display_help
 from gramps.gui.glade import Glade
 from gramps.gui.managedwindow import ManagedWindow
 from gramps.gui.plug import tool
-from gramps.gen.updatecallback import UpdateCallback
 from gramps.gui.utils import ProgressMeter
 from gramps.gui.widgets import MonitoredCheckbox, MonitoredEntry
 
@@ -189,7 +190,7 @@ class ReorderEntry(object):
         """ gets Keep flag """
         return self.keep_obj
 
-class ReorderIds(ManagedWindow, UpdateCallback):
+class ReorderIds(tool.BatchTool, ManagedWindow, UpdateCallback):
     """ Class for Reodering Gramps ID Tool """
     xobjects = (('person', 'people'), ('family', 'families'),
                 ('event', 'events'), ('place', 'places'),
@@ -197,9 +198,18 @@ class ReorderIds(ManagedWindow, UpdateCallback):
                 ('repository', 'repositories'),
                 ('media', 'media'), ('note', 'notes'))
 
+    def build_menu_names_(self, widget=None):
+        """ The menu name """
+        return (_('Main window'), _("Reorder Gramps IDs"))
+
     def __init__(self, dbstate, user, options_class, name, callback=None):
         self.uistate = user.uistate
         self.dbstate = dbstate.db
+
+        if self.uistate:
+            tool.BatchTool.__init__(self, dbstate, user, options_class, name)
+            if self.fail:
+                return   # user denied to modify Gramps IDs
 
         ManagedWindow.__init__(self, self.uistate, [], self.__class__)
         if not self.uistate:
@@ -244,94 +254,12 @@ class ReorderIds(ManagedWindow, UpdateCallback):
         else:
             self._execute()
 
-    def _display(self):
-        """ organize Glade 'Reorder IDs' window """
-        # get the main window from glade
-        self.gtk = Glade()
-        window = self.gtk.toplevel
-
-        # set gramps style title for the window
-        self.set_window(window, self.gtk.get_object("title"), \
-                        _("Reorder Gramps IDs"))
-
-        # connect signals
-        self.gtk.connect_signals({
-            "on_warning_exp_activate" : self.__on_expander_activate,
-            "on_selection_exp_activate" : self.__on_expander_activate,
-            "on_object_button_clicked" : self.__on_object_button_clicked,
-            "on_object_button_toggled" : self.__on_object_button_toggled,
-            "on_format_button_clicked" : self.__on_format_button_clicked,
-            "on_start_button_clicked" : self.__on_start_button_clicked,
-            "on_step_button_clicked" : self.__on_step_button_clicked,
-            "on_keep_button_clicked" : self.__on_keep_button_clicked,
-            "on_change_button_clicked" : self.__on_change_button_clicked,
-            "on_change_button_toggled" : self.__on_change_button_toggled,
-            "on_format_entry_keyrelease" : self.__on_format_entry_keyrelease,
-            "on_format_entry_focusout" : self.__on_format_entry_focusout,
-            "on_start_entry_focusout" : self.__on_start_entry_focusout,
-            "on_help_button_clicked" : self.__on_help_button_clicked,
-            "on_cancel_button_clicked" : self.close,
-            "on_ok_button_clicked" : self.__on_ok_button_clicked
-        })
-
-        # Calculate all entries and update Glade window
-        for prim_obj, tmp in self.xobjects:
-            # populate Object, Actual & Quantity fields with values
-            obj_active = self.gtk.get_object('%s_active' % prim_obj)
-            self.active_entries[prim_obj] = MonitoredCheckbox(obj_active, obj_active,
-                                        self.obj_values[prim_obj].set_active,
-                                        self.obj_values[prim_obj].get_active)
-            obj_actual = self.gtk.get_object('%s_actual' % prim_obj)
-            obj_actual.set_text('%s' % self.obj_values[prim_obj].last_id())
-            obj_quant = self.gtk.get_object('%s_quant' % prim_obj)
-            obj_quant.set_text('%s' % str(self.obj_values[prim_obj].quant_id))
-
-            # connect/populate Format, Start, Step, Keep & Change fields with GTK/values
-            obj_format = self.gtk.get_object('%s_format' % prim_obj)
-            self.format_entries[prim_obj] = MonitoredEntry(obj_format,
-                                    self.obj_values[prim_obj].set_fmt,
-                                    self.obj_values[prim_obj].get_fmt)
-            obj_change = self.gtk.get_object('%s_change' % prim_obj)
-            self.change_entries[prim_obj] = MonitoredCheckbox(obj_change, obj_change,
-                                    self.obj_values[prim_obj].set_change,
-                                    self.obj_values[prim_obj].get_change)
-            obj_start = self.gtk.get_object('%s_start' % prim_obj)
-            self.start_entries[prim_obj] = MonitoredEntry(obj_start,
-                                    self.obj_values[prim_obj].set_id,
-                                    self.obj_values[prim_obj].get_id)
-            obj_step = self.gtk.get_object('%s_step' % prim_obj)
-            self.step_entries[prim_obj] = MonitoredEntry(obj_step,
-                                    self.obj_values[prim_obj].set_step,
-                                    self.obj_values[prim_obj].get_step,
-                                    changed=self.obj_values[prim_obj].change_step)
-            obj_keep = self.gtk.get_object('%s_keep' % prim_obj)
-            self.keep_entries[prim_obj] = MonitoredCheckbox(obj_keep, obj_keep,
-                                    self.obj_values[prim_obj].set_keep,
-                                    self.obj_values[prim_obj].get_keep,
-                                    readonly=True)
-
-        # fetch the popup menu
-        self.menu = self.gtk.get_object("popup_menu")
-
-        # ok, let's see what we've done
-        self.show()
-
-    def __on_expander_activate(self, widget=None):
-        """ de-/activate the expander's after toggle the 'Active' attribute """
-        warn_exp = self.gtk.get_object('warning_exp')
-        warn_state = warn_exp.get_expanded()
-        select_exp = self.gtk.get_object('selection_exp')
-        select_state = select_exp.get_expanded()
-
-        if not select_state:
-            warn_exp.set_expanded(False)
-
     def __on_object_button_clicked(self, widget=None):
         """ compute all primary objects and toggle the 'Active' attribute """
         self.object_status = not self.object_status
 
         for prim_obj, tmp in self.xobjects:
-            obj = self.gtk.get_object('%s_active' % prim_obj)
+            obj = self.top.get_object('%s_active' % prim_obj)
             obj.set_active(self.object_status)
 
     def __on_object_button_toggled(self, widget):
@@ -342,20 +270,20 @@ class ReorderIds(ManagedWindow, UpdateCallback):
         self.active_entries[obj_name].set_val(obj_state)
 
         for obj_entry in ['actual', 'quant', 'format', 'change']:
-            obj = self.gtk.get_object('%s_%s' % (obj_name, obj_entry))
+            obj = self.top.get_object('%s_%s' % (obj_name, obj_entry))
             obj.set_sensitive(obj_state)
 
         for obj_entry in ['start', 'step', 'keep']:
-            obj = self.gtk.get_object('%s_change' % obj_name)
+            obj = self.top.get_object('%s_change' % obj_name)
             if obj.get_active():
-                obj = self.gtk.get_object('%s_%s' % (obj_name, obj_entry))
+                obj = self.top.get_object('%s_%s' % (obj_name, obj_entry))
                 obj.set_sensitive(obj_state)
 
     def __on_format_button_clicked(self, widget=None):
         """ compute all sensitive primary objects and sets the
             'Format' scheme of identifiers """
         for prim_obj, tmp in self.xobjects:
-            obj_format = self.gtk.get_object('%s_format' % prim_obj)
+            obj_format = self.top.get_object('%s_format' % prim_obj)
             if not obj_format.get_sensitive():
                 continue
 
@@ -372,7 +300,7 @@ class ReorderIds(ManagedWindow, UpdateCallback):
         self.change_status = not self.change_status
 
         for prim_obj, tmp in self.xobjects:
-            obj_change = self.gtk.get_object('%s_change' % prim_obj)
+            obj_change = self.top.get_object('%s_change' % prim_obj)
             if not obj_change.get_sensitive():
                 continue
 
@@ -385,7 +313,7 @@ class ReorderIds(ManagedWindow, UpdateCallback):
         obj_name = Gtk.Buildable.get_name(widget).split('_', 1)[0]
 
         for obj_entry in ['start', 'step', 'keep']:
-            obj = self.gtk.get_object('%s_%s' % (obj_name, obj_entry))
+            obj = self.top.get_object('%s_%s' % (obj_name, obj_entry))
             if obj_entry == 'keep':
                 if self.obj_values[obj_name].stored_prefix != \
                    self.obj_values[obj_name].object_prefix:
@@ -401,7 +329,7 @@ class ReorderIds(ManagedWindow, UpdateCallback):
         self.start_zero = not self.start_zero
 
         for prim_obj, tmp in self.xobjects:
-            obj = self.gtk.get_object('%s_start' % prim_obj)
+            obj = self.top.get_object('%s_start' % prim_obj)
             if not obj.get_sensitive():
                 continue
 
@@ -417,7 +345,7 @@ class ReorderIds(ManagedWindow, UpdateCallback):
         self.step_cnt = self.step_cnt +1 if self.step_cnt < 3 else 0
 
         for prim_obj, tmp in self.xobjects:
-            obj = self.gtk.get_object('%s_step' % prim_obj)
+            obj = self.top.get_object('%s_step' % prim_obj)
             if not obj.get_sensitive():
                 continue
 
@@ -429,11 +357,11 @@ class ReorderIds(ManagedWindow, UpdateCallback):
         self.keep_status = not self.keep_status
 
         for prim_obj, tmp in self.xobjects:
-            obj = self.gtk.get_object('%s_change' % prim_obj)
+            obj = self.top.get_object('%s_change' % prim_obj)
             if not obj.get_active():
                 continue
 
-            obj = self.gtk.get_object('%s_keep' % prim_obj)
+            obj = self.top.get_object('%s_keep' % prim_obj)
             obj.set_active(self.keep_status)
             self.keep_entries[prim_obj].set_val(self.keep_status)
 
@@ -443,8 +371,9 @@ class ReorderIds(ManagedWindow, UpdateCallback):
             obj_name = Gtk.Buildable.get_name(widget).split('_', 1)[0]
             obj_fmt = self.format_entries[obj_name].get_val()
             self.format_entries[obj_name].force_value(obj_fmt)
+            self.start_entries[obj_name].update()
 
-            obj_change = self.gtk.get_object('%s_change' % obj_name)
+            obj_change = self.top.get_object('%s_change' % obj_name)
             obj_change.grab_focus()
 
         return False
@@ -469,15 +398,113 @@ class ReorderIds(ManagedWindow, UpdateCallback):
     def __on_ok_button_clicked(self, widget=None):
         """ execute the reodering and close """
         self._execute()
+        self._update()
+
+        self.close()
+
+    def __on_cancel_button_clicked(self, widget=None):
+        """ cancel the reodering and close """
         self.close()
 
     def __on_help_button_clicked(self, widget=None):
         """ display the relevant portion of Gramps manual """
         display_help(webpage=WIKI_HELP_PAGE, section=WIKI_HELP_SEC)
 
-    def build_menu_names_(self, widget=None):
-        """ The menu name """
-        return (_('Main window'), _("Reorder Gramps IDs"))
+    def _display(self):
+        """ organize Glade 'Reorder IDs' window """
+
+        # get the main window from glade
+        self.top = Glade(toplevel="reorder-ids")
+        window = self.top.toplevel
+
+        # set gramps style title for the window
+        self.set_window(window, self.top.get_object("title"), \
+                        _("Reorder Gramps IDs"))
+
+        # connect signals
+        self.top.connect_signals({
+            "on_object_button_clicked" : self.__on_object_button_clicked,
+            "on_object_button_toggled" : self.__on_object_button_toggled,
+            "on_format_button_clicked" : self.__on_format_button_clicked,
+            "on_start_button_clicked" : self.__on_start_button_clicked,
+            "on_step_button_clicked" : self.__on_step_button_clicked,
+            "on_keep_button_clicked" : self.__on_keep_button_clicked,
+            "on_change_button_clicked" : self.__on_change_button_clicked,
+            "on_change_button_toggled" : self.__on_change_button_toggled,
+            "on_format_entry_keyrelease" : self.__on_format_entry_keyrelease,
+            "on_format_entry_focusout" : self.__on_format_entry_focusout,
+            "on_start_entry_focusout" : self.__on_start_entry_focusout,
+            "on_help_button_clicked" : self.__on_help_button_clicked,
+            "on_cancel_button_clicked" : self.__on_cancel_button_clicked,
+            "on_ok_button_clicked" : self.__on_ok_button_clicked
+        })
+
+        # Calculate all entries and update Glade window
+        for prim_obj, tmp in self.xobjects:
+            # populate Object, Actual & Quantity fields with values
+            obj_active = self.top.get_object('%s_active' % prim_obj)
+            self.active_entries[prim_obj] = MonitoredCheckbox(obj_active, obj_active,
+                                        self.obj_values[prim_obj].set_active,
+                                        self.obj_values[prim_obj].get_active)
+            obj_actual = self.top.get_object('%s_actual' % prim_obj)
+            obj_actual.set_text('%s' % self.obj_values[prim_obj].last_id())
+            obj_quant = self.top.get_object('%s_quant' % prim_obj)
+            obj_quant.set_text('%s' % str(self.obj_values[prim_obj].quant_id))
+
+            # connect/populate Format, Start, Step, Keep & Change fields with GTK/values
+            obj_format = self.top.get_object('%s_format' % prim_obj)
+            self.format_entries[prim_obj] = MonitoredEntry(obj_format,
+                                    self.obj_values[prim_obj].set_fmt,
+                                    self.obj_values[prim_obj].get_fmt)
+            obj_change = self.top.get_object('%s_change' % prim_obj)
+            self.change_entries[prim_obj] = MonitoredCheckbox(obj_change, obj_change,
+                                    self.obj_values[prim_obj].set_change,
+                                    self.obj_values[prim_obj].get_change)
+            obj_start = self.top.get_object('%s_start' % prim_obj)
+            self.start_entries[prim_obj] = MonitoredEntry(obj_start,
+                                    self.obj_values[prim_obj].set_id,
+                                    self.obj_values[prim_obj].get_id)
+            obj_step = self.top.get_object('%s_step' % prim_obj)
+            self.step_entries[prim_obj] = MonitoredEntry(obj_step,
+                                    self.obj_values[prim_obj].set_step,
+                                    self.obj_values[prim_obj].get_step,
+                                    changed=self.obj_values[prim_obj].change_step)
+            obj_keep = self.top.get_object('%s_keep' % prim_obj)
+            self.keep_entries[prim_obj] = MonitoredCheckbox(obj_keep, obj_keep,
+                                    self.obj_values[prim_obj].set_keep,
+                                    self.obj_values[prim_obj].get_keep,
+                                    readonly=True)
+
+        # fetch the popup menu
+        self.menu = self.top.get_object("popup_menu")
+
+        # ok, let's see what we've done
+        self.show()
+
+    def _update(self):
+        """ store changed objects formats in DB """
+
+        update = False
+        for prim_obj, tmp in self.xobjects:
+            obj_value = self.obj_values[prim_obj]
+            if obj_value.object_fmt != obj_value.stored_fmt:
+                prefix = obj_value.object_prefix.lower()
+                constant = 'preferences.%sprefix' % prefix
+                config.set(constant, obj_value.object_fmt)
+                update = True
+
+        if update:
+            config.save()
+            self.dbstate.set_prefixes(
+                config.get('preferences.iprefix'),
+                config.get('preferences.oprefix'),
+                config.get('preferences.fprefix'),
+                config.get('preferences.sprefix'),
+                config.get('preferences.cprefix'),
+                config.get('preferences.pprefix'),
+                config.get('preferences.eprefix'),
+                config.get('preferences.rprefix'),
+                config.get('preferences.nprefix'))
 
     def _execute(self):
         """ execute all primary objects and reorder if neccessary """
