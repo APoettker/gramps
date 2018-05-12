@@ -98,7 +98,7 @@ class EventView(ListView):
     EDIT_MSG    = _("Edit the selected event")
     DEL_MSG     = _("Delete the selected event")
     MERGE_MSG   = _("Merge the selected events")
-    CLONE_MSG   = _("Clone the selected event")
+    CLONE_MSG   = _("Clones the selected event")
     FILTER_TYPE = "Event"
     QR_CATEGORY = CATEGORY_QR_EVENT
 
@@ -231,7 +231,7 @@ class EventView(ListView):
 
     def add(self, obj):
         try:
-            self.uistate.action = 'Event-Add'
+            self.uistate.action = 'event-add'
             EditEvent(self.dbstate, self.uistate, [], Event())
         except WindowActiveError:
             pass
@@ -295,7 +295,7 @@ class EventView(ListView):
         for handle in self.selected_handles():
             event = self.dbstate.db.get_event_from_handle(handle)
             try:
-                self.uistate.action = 'Event-Edit'
+                self.uistate.action = 'event-edit'
                 EditEvent(self.dbstate, self.uistate, [], event)
             except WindowActiveError:
                 pass
@@ -327,12 +327,12 @@ class EventView(ListView):
             msg2 = _("Exactly one event must be selected to perform a clone.")
             ErrorDialog(msg, msg2, parent=self.uistate.window)
         else:
-            source_event = self.dbstate.db.get_event_from_handle(event_list[0])
-            event = Event(source=source_event)
-            event.handle, event.gramps_id = None, None
+            event = Event()
+            event = copy.deepcopy(self.dbstate.db.get_event_from_handle(event_list[0]))
+            event.gramps_id = None
 
             try:
-                self.uistate.action = 'Event-Clone'
+                self.uistate.action = 'event-clone'
                 EditEvent(self.dbstate, self.uistate, [], event)
             except WindowActiveError:
                 pass
